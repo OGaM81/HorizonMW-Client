@@ -25,43 +25,43 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Add ATL/MFC include and lib paths
+      - name: Locate ATL and write Directory.Build.props
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $installPath) { throw "VS install path not found" }
           Write-Host "VS install: $installPath"
-          $msvcRoot = Get-ChildItem "$installPath\VC\Tools\MSVC" | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
-          $atlInc = Join-Path $msvcRoot.FullName "atlmfc\include"
-          $atlLib = Join-Path $msvcRoot.FullName "atlmfc\lib\x64"
-          if (-not (Test-Path (Join-Path $atlInc "atlbase.h"))) {
-            Get-ChildItem "$installPath\VC\Tools\MSVC" -Recurse -Filter atlbase.h -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found: $($_.FullName)" }
-            throw "atlbase.h not found under $atlInc"
-          }
+          $atlHeader = Get-ChildItem "$installPath\VC\Tools\MSVC" -Recurse -Filter atlbase.h -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $atlHeader) { throw "atlbase.h not found under $installPath" }
+          $atlInc = $atlHeader.Directory.FullName
+          $atlLib = Join-Path $atlHeader.Directory.Parent.FullName "lib\x64"
           Write-Host "ATL include: $atlInc"
           Write-Host "ATL lib: $atlLib"
-          "ATL_INCLUDE=$atlInc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "ATL_LIB=$atlLib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $inc = if ($env:INCLUDE) { "$atlInc;$env:INCLUDE" } else { $atlInc }
-          $lib = if ($env:LIB) { "$atlLib;$env:LIB" } else { $atlLib }
-          "INCLUDE=$inc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "LIB=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "LIBPATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $props = @"
+          <Project>
+            <ItemDefinitionGroup>
+              <ClCompile>
+                <AdditionalIncludeDirectories>$atlInc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+              </ClCompile>
+              <Link>
+                <AdditionalLibraryDirectories>$atlLib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          "@
+          $props = ($props -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+          Set-Content -Path "Directory.Build.props" -Value $props -Encoding UTF8
+          New-Item -ItemType Directory -Force -Path "build" | Out-Null
+          Set-Content -Path "build\Directory.Build.props" -Value $props -Encoding UTF8
+          Get-Content Directory.Build.props
 
       - name: Generate VS2022 project files
         run: tools\premake5.exe vs2022
         shell: cmd
 
       - name: Build Release|x64
-        shell: cmd
-        run: >
-          msbuild /m /v:minimal
-          /p:Configuration=Release
-          /p:Platform=x64
-          /p:AdditionalIncludeDirectories="%ATL_INCLUDE%;%%(AdditionalIncludeDirectories)"
-          /p:AdditionalLibraryDirectories="%ATL_LIB%;%%(AdditionalLibraryDirectories)"
-          build\hmw-mod.sln
+        run: msbuild /m /v:minimal /p:Configuration=Release /p:Platform=x64 build\hmw-mod.sln
 
       - name: List build outputs
         run: |
