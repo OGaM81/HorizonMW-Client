@@ -1,0 +1,51 @@
+name: Build Windows (LP Wrapped)
+
+on:
+  push:
+    branches:
+      - lp-wrapped-flipbook
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Release x64
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          lfs: false
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Generate VS2022 project files
+        run: tools\premake5.exe vs2022
+        shell: cmd
+
+      - name: Build Release|x64
+        run: msbuild /m /v:minimal /p:Configuration=Release /p:Platform=x64 build\hmw-mod.sln
+
+      - name: List build outputs
+        run: |
+          Get-ChildItem -Recurse build\bin\x64\Release | Select-Object FullName, Length
+        shell: pwsh
+
+      - name: Upload hmw-mod artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmw-mod-lp-wrapped
+          path: |
+            build/bin/x64/Release/hmw-mod.exe
+            build/bin/x64/Release/hmw-mod.pdb
+            build/bin/x64/Release/tlsdll.dll
+            build/bin/x64/Release/tlsdll.pdb
+            build/bin/x64/Release/runner.exe
+            build/bin/x64/Release/runner.pdb
+          if-no-files-found: error
