@@ -27,7 +27,7 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Locate ATL and write Directory.Build.props
+      - name: Locate ATL and write Directory.Build.targets
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -40,9 +40,9 @@ jobs:
           $atlLib = Join-Path $atlHeader.Directory.Parent.FullName "lib\x64"
           Write-Host "ATL include: $atlInc"
           Write-Host "ATL lib: $atlLib"
-          # TreatWarningAsError=false: std_include.hpp pops its warning disables, so
-          # FatalCompileWarnings from premake Release breaks on stock MSVC noise.
-          $props = @"
+          # Directory.Build.targets is imported AFTER the vcxproj, so it can override
+          # TreatWarningAsError set by premake FatalCompileWarnings.
+          $targets = @"
           <Project>
             <ItemDefinitionGroup>
               <ClCompile>
@@ -56,24 +56,24 @@ jobs:
             </ItemDefinitionGroup>
           </Project>
           "@
-          $props = ($props -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
-          Set-Content -Path "Directory.Build.props" -Value $props -Encoding UTF8
+          $targets = ($targets -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
           New-Item -ItemType Directory -Force -Path "build" | Out-Null
-          Set-Content -Path "build\Directory.Build.props" -Value $props -Encoding UTF8
-          Get-Content Directory.Build.props
+          Set-Content -Path "Directory.Build.targets" -Value $targets -Encoding UTF8
+          Set-Content -Path "build\Directory.Build.targets" -Value $targets -Encoding UTF8
+          Get-Content build\Directory.Build.targets
 
       - name: Generate VS2022 project files
         run: tools\premake5.exe vs2022
         shell: cmd
 
-      - name: Re-apply Directory.Build.props after premake
+      - name: Re-apply Directory.Build.targets after premake
         shell: pwsh
         run: |
-          Copy-Item Directory.Build.props build\Directory.Build.props -Force
-          Write-Host "Restored build\Directory.Build.props"
+          Copy-Item Directory.Build.targets build\Directory.Build.targets -Force
+          Write-Host "Restored build\Directory.Build.targets"
 
       - name: Build Release|x64
-        run: msbuild /m /v:minimal /p:Configuration=Release /p:Platform=x64 build\hmw-mod.sln
+        run: msbuild /m /v:minimal /p:Configuration=Release /p:Platform=x64 /p:TreatWarningAsError=false build\hmw-mod.sln
 
       - name: List build outputs
         run: |
