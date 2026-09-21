@@ -40,12 +40,15 @@ jobs:
           $atlLib = Join-Path $atlHeader.Directory.Parent.FullName "lib\x64"
           Write-Host "ATL include: $atlInc"
           Write-Host "ATL lib: $atlLib"
+          # TreatWarningAsError=false: std_include.hpp pops its warning disables, so
+          # FatalCompileWarnings from premake Release breaks on stock MSVC noise.
           $props = @"
           <Project>
             <ItemDefinitionGroup>
               <ClCompile>
                 <AdditionalIncludeDirectories>$atlInc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-                <DisableSpecificWarnings>4505;4840;4102;4005;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+                <TreatWarningAsError>false</TreatWarningAsError>
+                <DisableSpecificWarnings>4005;4102;4127;4244;4505;4840;%(DisableSpecificWarnings)</DisableSpecificWarnings>
               </ClCompile>
               <Link>
                 <AdditionalLibraryDirectories>$atlLib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -66,10 +69,8 @@ jobs:
       - name: Re-apply Directory.Build.props after premake
         shell: pwsh
         run: |
-          if (Test-Path Directory.Build.props) {
-            Copy-Item Directory.Build.props build\Directory.Build.props -Force
-            Write-Host "Restored build\Directory.Build.props"
-          }
+          Copy-Item Directory.Build.props build\Directory.Build.props -Force
+          Write-Host "Restored build\Directory.Build.props"
 
       - name: Build Release|x64
         run: msbuild /m /v:minimal /p:Configuration=Release /p:Platform=x64 build\hmw-mod.sln
